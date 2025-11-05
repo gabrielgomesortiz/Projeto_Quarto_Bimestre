@@ -201,7 +201,7 @@ async function menu() {
         console.log(
           `\nColunas da tabela ${tabelaEscolhida}: ${colunas.join(", ")}`
         );
-        mostraMenu();
+        await verificaDependenciasComMensagem(tabelaEscolhida);
       } else {
         console.log("Opção inválida!");
         mostraMenu();
@@ -210,6 +210,69 @@ async function menu() {
   }
 
   mostraMenu();
+}
+
+// função que gera todas as combinações de 1 a 3 colunas para o lado esquerdo
+function geraCombinacoes(colunas) {
+  let combinacoes = [];
+  // 1 coluna
+  for (let i = 0; i < colunas.length; i++) {
+    combinacoes.push([colunas[i]]);
+  }
+  // 2 colunas
+  for (let i = 0; i < colunas.length; i++) {
+    for (let j = i + 1; j < colunas.length; j++) {
+      combinacoes.push([colunas[i], colunas[j]]);
+    }
+  }
+  // 3 colunas
+  for (let i = 0; i < colunas.length; i++) {
+    for (let j = i + 1; j < colunas.length; j++) {
+      for (let k = j + 1; k < colunas.length; k++) {
+        combinacoes.push([colunas[i], colunas[j], colunas[k]]);
+      }
+    }
+  }
+  return combinacoes;
+}
+
+// função ajustada para mostrar mensagem de dependências válidas abaixo das colunas
+async function verificaDependenciasComMensagem(tabela) {
+  const colunas = await pegaColunas(tabela);
+  const combinacoes = geraCombinacoes(colunas);
+  const client = await pool.connect();
+  let dependenciasInvalidas = [];
+  let totalTestes = 0;
+
+  for (let i = 0; i < combinacoes.length; i++) {
+    const ladoEsq = combinacoes[i];
+    for (let j = 0; j < colunas.length; j++) {
+      if (ladoEsq.includes(colunas[j])) continue;
+      const ladoDir = colunas[j];
+      const groupBy = ladoEsq.map((c) => `"${c}"`).join(", ");
+      const query = `SELECT ${groupBy}, COUNT(DISTINCT "${ladoDir}") AS cnt FROM "${tabela}" GROUP BY ${groupBy} HAVING COUNT(DISTINCT "${ladoDir}") > 1;`;
+      const res = await client.query(query);
+      totalTestes++;
+      if (res.rows.length > 0) {
+        dependenciasInvalidas.push({ esquerda: ladoEsq, direita: ladoDir });
+      }
+    }
+  }
+  client.release();
+  if (dependenciasInvalidas.length === 0) {
+    console.log(`Dependências funcionais válidas para a tabela '${tabela}'.\n`);
+  } else {
+    console.log(
+      `\nDependências funcionais NÃO válidas para a tabela '${tabela}':`
+    );
+    for (let dep of dependenciasInvalidas) {
+      console.log(`${dep.esquerda.join(", ")} -> ${dep.direita}`);
+    }
+    console.log(
+      `Total: ${dependenciasInvalidas.length} dependências não válidas\n`
+    );
+  }
+  menu();
 }
 
 menu();
