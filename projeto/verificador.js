@@ -318,6 +318,7 @@ async function verificaDependenciasComMensagem(tabela) {
   return dependenciasValidas;
 }
 
+// aqui agente começa a retirar as dependências redundantes
 async function retirarRedundancia(dependenciasValidas) {
 
   function fechamentoAtributos(conjunto, dependencias) {
@@ -326,7 +327,7 @@ async function retirarRedundancia(dependenciasValidas) {
       fechamento.push(conjunto[i]);
     }
 
-    for (let t = 0; t < dependencias.length * 2; t++) { // repete várias vezes pra garantir que tudo seja adicionado
+    for (let t = 0; t < dependencias.length * 2; t++) {
       for (let i = 0; i < dependencias.length; i++) {
         let dep = dependencias[i];
         let contemTodos = true;
