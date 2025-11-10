@@ -198,10 +198,28 @@ async function menu() {
       } else if (num >= 1 && num <= tabelas.length) {
         const tabelaEscolhida = tabelas[num - 1];
         const colunas = await pegaColunas(tabelaEscolhida);
-        console.log(
-          `\nColunas da tabela ${tabelaEscolhida}: ${colunas.join(", ")}`
+        console.log(`\nColunas da tabela ${tabelaEscolhida}: ${colunas.join(", ")}`);
+        // descobrir tempo de execução
+        let inicio = Date.now();
+        let dependenciasValidas = await verificaDependenciasComMensagem(tabelaEscolhida);
+        let fim = Date.now();
+        console.log(`Tempo de execução da verificação: ${(fim - inicio) / 1000} segundos`);
+        //
+        rl.question(
+          "deseja retirar as colunas redundantes? (sim/não): ",
+          async function (opcao) {
+            if (opcao.toLowerCase() === "sim") {
+              //
+              let inicio = Date.now();
+              await retirarRedundancia(dependenciasValidas);
+              let fim = Date.now();
+              console.log(`Tempo de execução da verificação: ${(fim - inicio) / 1000} segundos`);
+              //
+            } else {
+              menu();
+            }
+          }
         );
-        await verificaDependenciasComMensagem(tabelaEscolhida);
       } else {
         console.log("Opção inválida!");
         mostraMenu();
@@ -243,36 +261,47 @@ async function verificaDependenciasComMensagem(tabela) {
   const client = await pool.connect();
   const dependenciasValidas = [];
 
-  const chavePrimaria = colunasTabela[0]; 
-  const outrasColunas = colunasTabela.slice(1);
+  const colunas = colunasTabela;
+  const combinacoes = geraCombinacoes(colunas);
 
-  for (let i = 0; i < outrasColunas.length; i++) {
-    dependenciasValidas.push({ esquerda: [chavePrimaria], direita: outrasColunas[i] });
-  }
-
-  const combinacoes = geraCombinacoes(outrasColunas);
-
+  // testa todas as combinações possíveis de colunas para dependências
   for (let i = 0; i < combinacoes.length; i++) {
     const ladoEsquerdo = combinacoes[i];
 
-    for (let j = 0; j < outrasColunas.length; j++) {
-      const ladoDireito = outrasColunas[j];
-      if (ladoEsquerdo.includes(ladoDireito)) continue; 
+    for (let j = 0; j < colunas.length; j++) {
+      const ladoDireito = colunas[j];
 
-      let groupByStr = '';
-      for (let k = 0; k < ladoEsquerdo.length; k++) {
-        if (k > 0) groupByStr += ', ';
-        groupByStr += '"' + ladoEsquerdo[k] + '"';
+      // não faz sentido testar A → A ou {A,B} → A se A já está no lado esquerdo
+      if (ladoEsquerdo.includes(ladoDireito)) continue;
+
+      let condicaoNaoNula = "";
+      for (let i = 0; i < ladoEsquerdo.length; i++) {
+        if (i > 0) condicaoNaoNula += " AND ";
+        condicaoNaoNula += `"${ladoEsquerdo[i]}" IS NOT NULL`;
+      }
+      condicaoNaoNula += ` AND "${ladoDireito}" IS NOT NULL`;
+
+      let colunasSelect = "";
+      for (let i = 0; i < ladoEsquerdo.length; i++) {
+        if (i > 0) colunasSelect += ", ";
+        colunasSelect += `"${ladoEsquerdo[i]}"`;
       }
 
-      const query =  `SELECT ${groupByStr}, COUNT(DISTINCT "${ladoDireito}")
-                      FROM "${tabela}" GROUP BY ${groupByStr}
-                      HAVING COUNT(DISTINCT "${ladoDireito}") > 1;`;
+      let query = `
+                  SELECT ${colunasSelect}, COUNT(DISTINCT "${ladoDireito}") AS contagem
+                  FROM "${tabela}"
+                  WHERE ${condicaoNaoNula}
+                  GROUP BY ${colunasSelect}
+                  HAVING COUNT(DISTINCT "${ladoDireito}") > 1;`;
 
       const resultadoQuery = await client.query(query);
 
+      // se não existir grupo com mais de um valor distinto, a dependência é válida
       if (resultadoQuery.rows.length === 0) {
-        dependenciasValidas.push({ esquerda: ladoEsquerdo, direita: ladoDireito });
+        dependenciasValidas.push({
+          esquerda: ladoEsquerdo,
+          direita: ladoDireito,
+        });
       }
     }
   }
@@ -284,9 +313,120 @@ async function verificaDependenciasComMensagem(tabela) {
     console.log(dep.esquerda.join(", ") + " -> " + dep.direita);
   }
 
-  console.log("Total: " + dependenciasValidas.length + " dependências válidas");
+  console.log(
+    "Total: " + dependenciasValidas.length + " dependências válidas" + "\n"
+  );
+  return dependenciasValidas;
+}
 
+async function retirarRedundancia(dependenciasValidas) {
+
+  function fechamentoAtributos(conjunto, dependencias) {
+    let fechamento = [];
+    for (let i = 0; i < conjunto.length; i++) {
+      fechamento.push(conjunto[i]);
+    }
+
+    for (let t = 0; t < dependencias.length * 2; t++) { // repete várias vezes pra garantir que tudo seja adicionado
+      for (let i = 0; i < dependencias.length; i++) {
+        let dep = dependencias[i];
+        let contemTodos = true;
+        for (let j = 0; j < dep.esquerda.length; j++) {
+          let tem = false;
+          for (let k = 0; k < fechamento.length; k++) {
+            if (dep.esquerda[j] === fechamento[k]) {
+              tem = true;
+            }
+          }
+          if (!tem) {
+            contemTodos = false;
+          }
+        }
+
+        if (contemTodos) {
+          let existe = false;
+          for (let k = 0; k < fechamento.length; k++) {
+            if (fechamento[k] === dep.direita) {
+              existe = true;
+            }
+          }
+          if (!existe) {
+            fechamento.push(dep.direita);
+          }
+        }
+      }
+    }
+
+    return fechamento;
+  }
+
+  let finais = [];
+  for (let i = 0; i < dependenciasValidas.length; i++) {
+    finais.push({
+      esquerda: [],
+      direita: dependenciasValidas[i].direita
+    });
+    for (let j = 0; j < dependenciasValidas[i].esquerda.length; j++) {
+      finais[i].esquerda.push(dependenciasValidas[i].esquerda[j]);
+    }
+  }
+
+  for (let i = 0; i < finais.length; i++) {
+    let dep = finais[i];
+    let semAtual = [];
+    for (let j = 0; j < finais.length; j++) {
+      if (j !== i) {
+        semAtual.push(finais[j]);
+      }
+    }
+
+    let fechamento = fechamentoAtributos(dep.esquerda, semAtual);
+    let contem = false;
+    for (let j = 0; j < fechamento.length; j++) {
+      if (fechamento[j] === dep.direita) {
+        contem = true;
+      }
+    }
+
+    if (contem) {
+      for (let j = i; j < finais.length - 1; j++) {
+        finais[j] = finais[j + 1];
+      }
+      finais.length = finais.length - 1;
+      i = i - 1;
+    }
+  }
+
+  let filtradas = [];
+  for (let i = 0; i < finais.length; i++) {
+    let dep = finais[i];
+    let trivial = false;
+    for (let j = 0; j < dep.esquerda.length; j++) {
+      if (dep.esquerda[j] === dep.direita) {
+        trivial = true;
+      }
+    }
+    if (!trivial) {
+      filtradas.push(dep);
+    }
+  }
+
+  console.log("\nDependências não redundantes:");
+  for (let i = 0; i < filtradas.length; i++) {
+    let dep = filtradas[i];
+    let esquerdaTexto = "";
+    for (let j = 0; j < dep.esquerda.length; j++) {
+      esquerdaTexto += dep.esquerda[j];
+      if (j < dep.esquerda.length - 1) {
+        esquerdaTexto += ", ";
+      }
+    }
+    console.log(esquerdaTexto + " -> " + dep.direita);
+  }
+
+  console.log("Total: " + filtradas.length + " dependências finais.\n");
   menu();
 }
+
 
 menu();

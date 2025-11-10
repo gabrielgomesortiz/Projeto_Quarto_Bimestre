@@ -7,15 +7,6 @@ CREATE TABLE funcionario (
     departamento VARCHAR(50) NOT NULL
 );
 
-
-INSERT INTO funcionario (nome, cpf, cargo, salario, departamento) VALUES
-('Ana Souza', '12345678901', 'Analista', 4500.00, 'TI'),
-('Bruno Lima', '23456789012', 'Gerente', 7000.00, 'Vendas'),
-('Carla Mendes', '34567890123', 'Assistente', 3000.00, 'Financeiro'),
-('Diego Rocha', '45678901234', 'Analista', 4500.00, 'TI'),
-('Fernanda Alves', '56789012345', 'Gerente', 7000.00, 'RH');
-
-
 CREATE TABLE aluno (
     ra INT PRIMARY KEY,
     nome VARCHAR(50) NOT NULL,
