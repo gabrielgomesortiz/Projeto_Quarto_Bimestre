@@ -21,7 +21,7 @@ const path = "../csvs";
 // aqui é apenas o objeto da biblioteca node que se comunica com o banco
 const pool = new Pool({
   user: "postgres",
-  password: "lindo",
+  password: "",
   host: "localhost",
   port: 5432,
   database: "teste_dE_depencia_funcional",
